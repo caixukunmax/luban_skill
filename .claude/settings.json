@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh repo:*)",
+      "Bash(jq -r '.message // .visibility // \"\"\"\"Success\"\"\"\"')",
+      "Bash(git add:*)"
+    ]
+  }
+}

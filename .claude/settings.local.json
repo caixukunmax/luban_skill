@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find . -name *.xlsx -path */Datas/*)",
+      "Bash(find . -name *.xlsx)",
+      "Bash(python .claude/skills/luban-config-editor/scripts/luban_helper.py table get TbItem --data-dir tables/datas)",
+      "Bash(python .claude/skills/luban-config-editor/scripts/luban_helper.py --data-dir tables/datas table get TbItem)",
+      "Bash(python .claude/skills/luban-config-editor/scripts/luban_helper.py --data-dir tables/datas table list)",
+      "Bash(python -c \"import openpyxl; wb = openpyxl.load_workbook\\(''tables/datas/#Item-道具表.xlsx'', data_only=True\\); ws = wb.active; rows = list\\(ws.iter_rows\\(values_only=True\\)\\); [print\\(r\\) for r in rows[:10]]\")",
+      "Bash(python -c \"import openpyxl; wb = openpyxl.load_workbook\\(''tables/datas/__enums__.xlsx'', data_only=True\\); ws = wb.active; rows = list\\(ws.iter_rows\\(values_only=True\\)\\); [print\\(r[:4]\\) for r in rows[:20]]\")",
+      "Bash(python:*)",
+      "Bash(chcp 65001)",
+      "Bash(skillhub --version)",
+      "Bash(skillhub install:*)",
+      "Bash(skillhub search:*)",
+      "Bash(skillhub list:*)",
+      "Bash(skillhub --help)",
+      "Bash(skillhub login:*)",
+      "Bash(where skillhub:*)",
+      "Bash(npm uninstall:*)",
+      "WebFetch(domain:skillhub-1388575217.cos.ap-guangzhou.myqcloud.com)",
+      "Bash(curl -s \"https://skillhub-1388575217.cos.ap-guangzhou.myqcloud.com/install/skillhub.md\")",
+      "Bash(wget -qO- \"https://skillhub-1388575217.cos.ap-guangzhou.myqcloud.com/install/skillhub.md\")",
+      "Bash(curl -fsSL https://skillhub-1388575217.cos.ap-guangzhou.myqcloud.com/install/install.sh)",
+      "Bash(bash -s -- --cli-only)",
+      "Bash(/c/Users/Administrator/.local/bin/skillhub install:*)",
+      "Bash(npx skills:*)",
+      "Bash(rm -rf \"C:\\\\code\\\\luban_skill\\\\.claude\\\\skills\\\\arborist-ai-claude-desktop-skills-xlsx\")",
+      "Bash(rm -rf \"C:\\\\code\\\\luban_skill\\\\.claude\\\\skills\\\\microck-ordinary-claude-skills-excel-analysis\")"
+    ]
+  }
+}
