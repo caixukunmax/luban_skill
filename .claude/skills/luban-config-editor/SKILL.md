@@ -41,9 +41,56 @@ python -c "import json; ..."
 
 ## AI 操作工作流
 
-### ⚠️ 操作前确认机制
+### ⚠️ 操作前确认机制（强制）
 
-当用户指令模糊时，**必须先确认再操作**：
+**所有写入/修改/删除操作在执行前，必须明确询问用户确认。**
+
+确认信息必须包含：
+1. **目标文件**：完整的 Excel 文件路径
+2. **操作类型**：添加/修改/删除 字段/数据行/枚举/Bean 等
+3. **具体内容**：详细的操作参数
+
+#### 各类操作确认模板
+
+**添加字段时**：
+```
+我将执行以下操作：
+- 目标文件：tables/datas/#Item-道具表.xlsx
+- 操作：添加新字段
+- 字段名：soul
+- 字段类型：string
+- 字段注释：灵魂
+- 分组：c (客户端)
+
+确认执行吗？(是/否)
+```
+
+**添加数据行时**：
+```
+我将执行以下操作：
+- 目标文件：tables/datas/#Item-道具表.xlsx
+- 操作：新增数据行
+- 数据内容：
+  - id: 3007
+  - name: 魔丸
+  - type: Consumable
+  - quality: 5
+  - ...
+
+确认执行吗？(是/否)
+```
+
+**删除字段/数据时**：
+```
+⚠️ 警告：此操作不可逆！
+- 目标文件：tables/datas/#Item-道具表.xlsx
+- 操作：删除字段 "price"
+- 影响：该字段的所有数据将被永久删除
+
+确认执行吗？(是/否)
+```
+
+**模糊指令时的确认**：
 
 | 场景 | 需要确认的内容 |
 |------|---------------|
@@ -51,20 +98,6 @@ python -c "import json; ..."
 | "加个字段" | 确认表名、字段名、字段类型 |
 | "删除xxx" | 确认删除目标、影响范围、二次确认 |
 | "修改xxx" | 确认修改内容、影响的数据行 |
-
-**确认模板**：
-```
-我将执行以下操作：
-- 文件：xxx.xlsx
-- 操作：新增数据行
-- 内容：
-  - id: 3007
-  - name: 魔丸
-  - type: Consumable
-  - ...
-
-确认执行吗？(是/否)
-```
 
 **多文件选择**：
 ```
@@ -83,7 +116,8 @@ python -c "import json; ..."
 ### 修改数据前
 1. 先用 `table get` 或 `field list` 确认表结构
 2. 用 `row get` 查询现有数据，避免主键冲突
-3. 执行修改后用 `validate` 验证
+3. **执行写入/修改/删除前，明确询问用户确认（目标文件 + 操作内容）**
+4. 执行修改后用 `validate` 验证
 
 ### 删除操作前
 1. 用 `ref` 检查引用关系
@@ -92,13 +126,17 @@ python -c "import json; ..."
 
 ### 智能推断指南
 
-| 用户说 | 推断命令 |
-|--------|---------|
-| "查一下屠龙刀" | `row get TbItem --field name --value "屠龙刀"` |
-| "道具表加个字段" | `field add TbItem <字段名> --type ...` |
-| "删除道具1001" | `row get TbItem --field id --value 1001` 确认后删除 |
-| "看看品质枚举" | 先 `enum list` 找到匹配项，再 `enum get` |
-| "加个新道具" | `row add TbItem --data '{"id":...}'` |
+| 用户说 | 推断命令 | 必须确认的内容 |
+|--------|---------|---------------|
+| "查一下屠龙刀" | `row get TbItem --field name --value "屠龙刀"` | 无需确认（只读） |
+| "道具表加个字段" | `field add TbItem <字段名> --type ...` | **必须确认**：目标文件、字段名、类型、注释 |
+| "删除道具1001" | `row get TbItem --field id --value 1001` 确认后删除 | **必须确认**：目标文件、删除的数据行 |
+| "看看品质枚举" | 先 `enum list` 找到匹配项，再 `enum get` | 无需确认（只读） |
+| "加个新道具" | `row add TbItem --data '{"id":...}'` | **必须确认**：目标文件、所有字段值 |
+
+**重要原则**：
+- **只读操作**（list/get/query/search）：无需确认，直接执行
+- **写入操作**（add/update/delete）：**必须明确询问用户确认**，包括目标文件和具体操作内容
 
 ---
 
@@ -159,7 +197,13 @@ python -c "import json; ..."
 | `tag` | 数据标签 | `tag add TbItem 2 dev` |
 | `variant` | 字段变体 | `variant add TbItem name zh` |
 | `multirow` | 多行结构 | `multirow TbReward items` |
-| `type` | 类型查询 | `type "list<int>"` |
+| `type` | 类型系统操作 | `type list`, `type suggest quality --context item` |
+| `type info <name>` | 查询类型详情 | `type info "list<int>"` |
+| `type list` | 列出所有类型 | `type list --category enum` |
+| `type validate <name>` | 验证类型 | `type validate "list<int>"` |
+| `type suggest <field>` | 建议字段类型 | `type suggest drops --context monster` |
+| `type search <keyword>` | 搜索类型 | `type search Quality` |
+| `type guide` | 类型使用指南 | `type guide --topic container` |
 | `cache` | 缓存管理 | `cache build` |
 | `pref` | 用户偏好 | `pref set prefer_auto_import true` |
 
@@ -311,6 +355,110 @@ python scripts/luban_helper.py auto create #Item --fields "id:int:ID,name:string
 
 ### 可空类型
 在类型后加 `?`：`int?` `string?` `MyBean?`
+
+---
+
+## 类型系统操作指南
+
+Skill 提供强大的类型系统支持，帮助快速查找和使用正确的类型。
+
+### 列出所有可用类型
+
+```bash
+# 列出所有类型（基本类型 + 容器类型 + 枚举 + Bean）
+python scripts/luban_helper.py type list --data-dir DataTables/Datas
+
+# 只列出基本类型
+python scripts/luban_helper.py type list --category basic --data-dir DataTables/Datas
+
+# 只列出枚举
+python scripts/luban_helper.py type list --category enum --data-dir DataTables/Datas
+
+# 只列出 Bean
+python scripts/luban_helper.py type list --category bean --data-dir DataTables/Datas
+```
+
+### 验证类型是否有效
+
+```bash
+# 验证单个类型
+python scripts/luban_helper.py type validate "list<int>" --data-dir DataTables/Datas
+
+# 验证枚举类型
+python scripts/luban_helper.py type validate "test.EQuality" --data-dir DataTables/Datas
+```
+
+### 根据字段名建议类型
+
+```bash
+# 通用建议
+python scripts/luban_helper.py type suggest "item_id" --data-dir DataTables/Datas
+
+# 怪物上下文建议
+python scripts/luban_helper.py type suggest "drops" --context monster --data-dir DataTables/Datas
+
+# 道具上下文建议
+python scripts/luban_helper.py type suggest "quality" --context item --data-dir DataTables/Datas
+```
+
+**支持的上下文**：`item`(道具), `skill`(技能), `monster`(怪物), `quest`(任务), `general`(通用)
+
+### 搜索类型
+
+```bash
+# 搜索包含关键词的类型
+python scripts/luban_helper.py type search Quality --data-dir DataTables/Datas
+
+# 只搜索枚举
+python scripts/luban_helper.py type search Quality --category enum --data-dir DataTables/Datas
+
+# 只搜索 Bean
+python scripts/luban_helper.py type search Reward --category bean --data-dir DataTables/Datas
+```
+
+### 查看类型使用指南
+
+```bash
+# 查看完整类型指南
+python scripts/luban_helper.py type guide --data-dir DataTables/Datas
+
+# 查看容器类型指南
+python scripts/luban_helper.py type guide --topic container --data-dir DataTables/Datas
+
+# 查看可空类型指南
+python scripts/luban_helper.py type guide --topic nullable --data-dir DataTables/Datas
+
+# 查看枚举使用指南
+python scripts/luban_helper.py type guide --topic enum --data-dir DataTables/Datas
+```
+
+### 查询类型详情
+
+```bash
+# 查询 list<int> 的详细信息
+python scripts/luban_helper.py type info "list<int>" --data-dir DataTables/Datas
+
+# 查询枚举详情
+python scripts/luban_helper.py type info "test.EQuality" --data-dir DataTables/Datas
+```
+
+### 字段类型推断规则
+
+Skill 内置智能类型推断，根据字段名自动建议类型：
+
+| 字段名模式 | 建议类型 | 说明 |
+|-----------|---------|------|
+| `*_id`, `id` | int, long | ID 字段 |
+| `name`, `title`, `desc` | string | 名称/描述 |
+| `*count`, `*num` | int | 数量 |
+| `*price`, `*cost` | int, long | 价格/成本 |
+| `quality`, `level`, `grade` | int | 品质/等级 |
+| `*rate`, `*ratio`, `*prob` | float, double | 概率/比率 |
+| `*time`, `*duration` | int, datetime | 时间 |
+| `is_*`, `has_*`, `can_*` | bool | 布尔标志 |
+| `*icon`, `*image`, `*model` | string | 资源路径 |
+| `*s`, `*_list`, `*ids` | list<int> | 列表 |
+| `*x`, `*y`, `*z`, `*pos*` | float | 坐标 |
 
 ---
 

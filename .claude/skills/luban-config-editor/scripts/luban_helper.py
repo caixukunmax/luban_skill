@@ -5,11 +5,22 @@ Luban 配置编辑器辅助脚本
 用于 AI 操作 Luban 配置表、枚举、Bean 等
 """
 
+import os
+import sys
+
+# Windows 编码修复：必须在最开始执行
+if sys.platform == 'win32':
+    os.environ['PYTHONIOENCODING'] = 'utf-8'
+    import io
+    # 强制重新打开 stdout/stderr 使用 UTF-8
+    if sys.stdout.encoding != 'utf-8':
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', line_buffering=True)
+    if sys.stderr.encoding != 'utf-8':
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', line_buffering=True)
+
 import argparse
 import json
 import hashlib
-import os
-import sys
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
@@ -445,28 +456,87 @@ class LubanConfigHelper:
     # ==================== 表操作 ====================
     
     def list_tables(self) -> List[Dict[str, Any]]:
-        """列出所有表"""
-        if not self.tables_file.exists():
-            return []
-        
-        wb = openpyxl.load_workbook(self.tables_file)
-        sheet = wb.active
-        
+        """列出所有表（包括 __tables__.xlsx 中的表和自动导入表）"""
         tables = []
-        
-        for row in sheet.iter_rows(min_row=4, values_only=True):
-            full_name = row[1]  # B列
-            if full_name:
-                tables.append({
-                    "full_name": full_name,
-                    "value_type": row[2] if len(row) > 2 else "",  # C列
-                    "input": row[4] if len(row) > 4 else "",  # E列
-                    "index": row[5] if len(row) > 5 else "",  # F列
-                    "mode": row[6] if len(row) > 6 else "",  # G列
-                    "comment": row[8] if len(row) > 8 else ""  # I列
-                })
-        
-        wb.close()
+        existing_names = set()
+
+        # 1. 从 __tables__.xlsx 读取传统表定义
+        if self.tables_file.exists():
+            wb = openpyxl.load_workbook(self.tables_file)
+            sheet = wb.active
+
+            for row in sheet.iter_rows(min_row=4, values_only=True):
+                full_name = row[1]  # B列
+                if full_name and isinstance(full_name, str):
+                    tables.append({
+                        "full_name": full_name,
+                        "value_type": row[2] if len(row) > 2 else "",  # C列
+                        "input": row[4] if len(row) > 4 else "",  # E列
+                        "index": row[5] if len(row) > 5 else "",  # F列
+                        "mode": row[6] if len(row) > 6 else "",  # G列
+                        "comment": row[8] if len(row) > 8 else "",  # I列
+                        "source": "__tables__.xlsx"
+                    })
+                    existing_names.add(full_name)
+
+            wb.close()
+
+        # 2. 扫描自动导入表（# 开头的文件）
+        auto_tables = self._scan_auto_import_tables()
+        for table in auto_tables:
+            if table["full_name"] not in existing_names:
+                tables.append(table)
+
+        return tables
+
+    def _scan_auto_import_tables(self) -> List[Dict[str, Any]]:
+        """扫描自动导入表（# 开头的文件）
+
+        命名规则：
+        - #Item.xlsx -> 表名 TbItem，类型 Item
+        - #Item-道具表.xlsx -> 表名 TbItem，注释 道具表
+        - reward/#Reward.xlsx -> 表名 reward.TbReward
+        """
+        tables = []
+
+        def scan_directory(directory: Path, module_prefix: str = ""):
+            for item in directory.iterdir():
+                if item.is_dir() and not item.name.startswith("."):
+                    # 子目录，递归扫描
+                    new_prefix = f"{module_prefix}.{item.name}" if module_prefix else item.name
+                    scan_directory(item, new_prefix)
+                elif item.is_file() and item.name.startswith("#") and item.suffix == ".xlsx":
+                    # 跳过特殊文件
+                    if item.name.startswith("##"):
+                        continue
+
+                    # 解析文件名
+                    name_part = item.name[1:-5]  # 去掉 # 和 .xlsx
+                    parts = name_part.split("-", 1)
+                    base_name = parts[0]
+                    comment = parts[1] if len(parts) > 1 else ""
+
+                    # 构造表名
+                    value_type = base_name
+                    table_name = f"Tb{base_name}"
+                    if module_prefix:
+                        full_name = f"{module_prefix}.{table_name}"
+                    else:
+                        full_name = table_name
+
+                    tables.append({
+                        "full_name": full_name,
+                        "value_type": value_type,
+                        "input": str(item.relative_to(self.data_dir)),
+                        "index": "",  # 自动从表头读取
+                        "mode": "",
+                        "comment": comment,
+                        "source": "auto-import"
+                    })
+
+        if self.data_dir.exists():
+            scan_directory(self.data_dir)
+
         return tables
     
     def get_table(self, table_name: str) -> Optional[Dict[str, Any]]:
@@ -526,7 +596,15 @@ class LubanConfigHelper:
             if not comment:
                 comment = table_short_name  # 默认用表名作为注释
             auto_file_name = f"#{record_type}-{comment}.xlsx"
-            excel_path = self.data_dir / auto_file_name
+            # 处理模块前缀，创建子目录
+            if "." in full_name:
+                module_name = full_name.split(".")[0]
+                target_dir = self.data_dir / module_name
+                # 确保子目录存在
+                target_dir.mkdir(parents=True, exist_ok=True)
+                excel_path = target_dir / auto_file_name
+            else:
+                excel_path = self.data_dir / auto_file_name
             
             # 检查文件是否已存在
             if excel_path.exists():
@@ -1475,18 +1553,22 @@ class LubanConfigHelper:
     def _get_data_start_row(self, sheet) -> int:
         """获取数据起始行号"""
         last_header_row = 4  # 默认头部4行（##var, ##type, ##, ##group）
-        
+
         for i, row in enumerate(sheet.iter_rows(values_only=True), 1):
             cell_value = row[0]
             if cell_value and str(cell_value).startswith("##"):
                 last_header_row = i
             elif cell_value is None or cell_value == "":
-                # 空行，继续查找
+                # 检查该行其他列是否有数据
+                if any(c is not None and c != "" for c in row[1:]):
+                    # 找到数据行（A列为空，但其他列有数据）
+                    return i
+                # 真正的空行，继续查找
                 continue
             else:
                 # 找到第一个非 ## 开头且非空的行
                 return i
-        
+
         # 如果没找到，返回头部行+1
         return last_header_row + 1
     
@@ -3411,7 +3493,468 @@ class LubanConfigHelper:
                 return info
         
         return info
-    
+
+    def list_all_types(self, category: str = "all") -> Dict[str, Any]:
+        """列出所有可用类型
+
+        Args:
+            category: 类型类别筛选 - basic(基本类型), container(容器类型), enum(枚举), bean(Bean), all(全部)
+
+        Returns:
+            包含各类型的详细信息
+        """
+        result = {
+            "category": category,
+            "types": []
+        }
+
+        # 基本类型
+        basic_types = [
+            {"name": "bool", "description": "布尔值", "example": "true/false"},
+            {"name": "byte", "description": "8位有符号整数", "example": "-128 ~ 127"},
+            {"name": "short", "description": "16位有符号整数", "example": "-32768 ~ 32767"},
+            {"name": "int", "description": "32位有符号整数", "example": "常用数字类型"},
+            {"name": "long", "description": "64位有符号整数", "example": "大整数"},
+            {"name": "float", "description": "32位浮点数", "example": "3.14"},
+            {"name": "double", "description": "64位浮点数", "example": "高精度小数"},
+            {"name": "string", "description": "字符串", "example": "文本内容"},
+            {"name": "text", "description": "长文本", "example": "大段文字"},
+            {"name": "datetime", "description": "日期时间", "example": "2024-01-01 12:00:00"}
+        ]
+
+        # 容器类型模板
+        container_templates = [
+            {"name": "array<T>", "description": "定长数组", "example": "array<int>"},
+            {"name": "list<T>", "description": "变长列表", "example": "list<string>"},
+            {"name": "set<T>", "description": "集合（去重）", "example": "set<int>"},
+            {"name": "map<K,V>", "description": "键值对映射", "example": "map<int,string>"}
+        ]
+
+        if category in ["basic", "all"]:
+            for t in basic_types:
+                result["types"].append({
+                    "category": "basic",
+                    "name": t["name"],
+                    "description": t["description"],
+                    "example": t["example"],
+                    "nullable_version": f"{t['name']}?"
+                })
+
+        if category in ["container", "all"]:
+            for t in container_templates:
+                result["types"].append({
+                    "category": "container",
+                    "name": t["name"],
+                    "description": t["description"],
+                    "example": t["example"],
+                    "note": "T/K/V 可以是任何基本类型、枚举或Bean"
+                })
+
+        if category in ["enum", "all"]:
+            enums = self.list_enums()
+            for enum in enums:
+                result["types"].append({
+                    "category": "enum",
+                    "name": enum["full_name"],
+                    "description": enum.get("comment", ""),
+                    "items_count": len(enum.get("items", [])),
+                    "items": [{"name": item["name"], "value": item["value"], "alias": item.get("alias", "")}
+                             for item in enum.get("items", [])[:5]]  # 最多显示5个
+                })
+
+        if category in ["bean", "all"]:
+            beans = self.list_beans()
+            for bean in beans:
+                result["types"].append({
+                    "category": "bean",
+                    "name": bean["full_name"],
+                    "description": bean.get("comment", ""),
+                    "parent": bean.get("parent", ""),
+                    "fields_count": len(bean.get("fields", []))
+                })
+
+        return result
+
+    def validate_type(self, type_str: str) -> Dict[str, Any]:
+        """验证类型字符串是否有效
+
+        Args:
+            type_str: 类型字符串，如 "list<int>", "test.EQuality"
+
+        Returns:
+            验证结果，包含 is_valid 和详细信息
+        """
+        if not type_str or not type_str.strip():
+            return {"is_valid": False, "error": "类型字符串为空"}
+
+        type_str = type_str.strip()
+        info = self.get_type_info(type_str)
+
+        result = {
+            "type": type_str,
+            "is_valid": True,
+            "info": info
+        }
+
+        # 检查是否为已知类型
+        is_known = (
+            info.get("is_container") or
+            (info.get("base_type") and info.get("base_type").lower() in [
+                'bool', 'byte', 'short', 'int', 'long', 'float', 'double', 'string', 'text', 'datetime'
+            ]) or
+            info.get("is_enum") or
+            info.get("is_bean")
+        )
+
+        if not is_known:
+            result["is_valid"] = False
+            result["error"] = f"未知类型: {type_str}"
+            result["suggestions"] = self._get_type_suggestions(type_str)
+
+        return result
+
+    def _get_type_suggestions(self, type_str: str) -> List[str]:
+        """获取类型建议（当类型无效时）"""
+        suggestions = []
+
+        # 检查是否是缺少模块名的枚举/Bean
+        enums = self.list_enums()
+        beans = self.list_beans()
+
+        # 查找相似名称
+        for enum in enums:
+            if type_str.lower() in enum["full_name"].lower() or enum["full_name"].lower().endswith(type_str.lower()):
+                suggestions.append(enum["full_name"])
+
+        for bean in beans:
+            if type_str.lower() in bean["full_name"].lower() or bean["full_name"].lower().endswith(type_str.lower()):
+                suggestions.append(bean["full_name"])
+
+        return suggestions[:5]  # 最多返回5个建议
+
+    def suggest_type_for_field(self, field_name: str, context: str = "general") -> Dict[str, Any]:
+        """根据字段名建议类型
+
+        Args:
+            field_name: 字段名，如 'item_id', 'name', 'quality'
+            context: 上下文类型 - item(道具), skill(技能), monster(怪物), quest(任务), general(通用)
+
+        Returns:
+            建议的类型列表，按匹配度排序
+        """
+        field_name_lower = field_name.lower()
+        suggestions = []
+
+        # 通用模式匹配
+        patterns = {
+            # ID 相关
+            r".*_?id$": ["int", "long", "string"],
+            r"^id$": ["int", "long"],
+
+            # 名称相关
+            r".*name.*": ["string"],
+            r".*desc.*": ["string", "text"],
+            r".*title.*": ["string"],
+
+            # 数量/数值
+            r".*count$": ["int", "short"],
+            r".*num$": ["int", "short"],
+            r".*amount$": ["int", "long"],
+            r".*max$": ["int", "short"],
+            r".*min$": ["int", "short"],
+
+            # 品质/等级
+            r".*quality$": ["int"],
+            r".*level$": ["int", "short"],
+            r".*grade$": ["int", "short"],
+            r".*rank$": ["int", "short"],
+            r".*tier$": ["int", "short"],
+
+            # 价格/货币
+            r".*price$": ["int", "long"],
+            r".*cost$": ["int", "long"],
+            r".*gold$": ["int", "long"],
+            r".*diamond$": ["int", "long"],
+
+            # 概率/比率
+            r".*rate$": ["float", "double"],
+            r".*ratio$": ["float", "double"],
+            r".*prob$": ["float", "double"],
+            r".*chance$": ["float", "double"],
+
+            # 时间
+            r".*time$": ["int", "long", "datetime"],
+            r".*duration$": ["int", "long"],
+            r".*cd$": ["int", "float"],
+            r".*cooldown$": ["int", "float"],
+
+            # 布尔标志
+            r"is_.*": ["bool"],
+            r"has_.*": ["bool"],
+            r"can_.*": ["bool"],
+            r"enable.*": ["bool"],
+            r".*_flag$": ["bool"],
+
+            # 资源路径
+            r".*icon$": ["string"],
+            r".*image$": ["string"],
+            r".*model$": ["string"],
+            r".*prefab$": ["string"],
+            r".*asset$": ["string"],
+            r".*path$": ["string"],
+            r".*url$": ["string"],
+
+            # 列表/数组（复数形式）
+            r".*s$": ["list<int>", "array<int>"],
+            r".*_list$": ["list<int>", "list<string>"],
+            r".*_ids$": ["list<int>", "list<long>"],
+            r".*drops$": ["list<int>", "list<DropItem>"],
+            r".*rewards$": ["list<RewardItem>", "list<int>"],
+
+            # 坐标/位置
+            r".*pos.*": ["float", "double"],
+            r".*coord.*": ["float", "double"],
+            r".*x$": ["float", "int"],
+            r".*y$": ["float", "int"],
+            r".*z$": ["float", "int"],
+        }
+
+        import re
+        for pattern, types in patterns.items():
+            if re.match(pattern, field_name_lower):
+                for t in types:
+                    suggestions.append({
+                        "type": t,
+                        "confidence": "high",
+                        "reason": f"字段名 '{field_name}' 匹配模式 '{pattern}'"
+                    })
+
+        # 根据上下文调整建议
+        context_adjustments = {
+            "item": {
+                "type": ["int", "EItemType"],
+                "quality": ["int", "EQuality"],
+                "bind": ["bool"],
+                "stackable": ["bool"],
+            },
+            "skill": {
+                "type": ["int", "ESkillType"],
+                "target": ["int", "ETargetType"],
+                "damage": ["int", "float"],
+                "mp_cost": ["int"],
+                "cd": ["float", "int"],
+            },
+            "monster": {
+                "type": ["int", "EMonsterType"],
+                "race": ["int", "ERace"],
+                "hp": ["int", "long"],
+                "atk": ["int"],
+                "def": ["int"],
+                "drops": ["list<int>", "list<DropItem>"],
+            },
+            "quest": {
+                "type": ["int", "EQuestType"],
+                "status": ["int", "EQuestStatus"],
+                "npc_id": ["int"],
+                "reward": ["list<int>", "list<RewardItem>"],
+            }
+        }
+
+        if context in context_adjustments:
+            for key, types in context_adjustments[context].items():
+                if key in field_name_lower:
+                    for t in types:
+                        suggestions.insert(0, {
+                            "type": t,
+                            "confidence": "very_high",
+                            "reason": f"{context} 上下文中的 '{key}' 字段"
+                        })
+
+        # 如果没有匹配，返回通用建议
+        if not suggestions:
+            suggestions = [
+                {"type": "int", "confidence": "medium", "reason": "通用数字类型"},
+                {"type": "string", "confidence": "medium", "reason": "通用文本类型"},
+                {"type": "bool", "confidence": "low", "reason": "通用布尔类型"}
+            ]
+
+        # 去重
+        seen = set()
+        unique_suggestions = []
+        for s in suggestions:
+            if s["type"] not in seen:
+                seen.add(s["type"])
+                unique_suggestions.append(s)
+
+        return {
+            "field_name": field_name,
+            "context": context,
+            "suggestions": unique_suggestions[:5]  # 最多返回5个建议
+        }
+
+    def search_types(self, keyword: str, category: str = "all") -> Dict[str, Any]:
+        """搜索类型
+
+        Args:
+            keyword: 搜索关键词
+            category: 搜索类别 - enum(枚举), bean(Bean), all(全部)
+
+        Returns:
+            匹配的类型列表
+        """
+        keyword_lower = keyword.lower()
+        results = []
+
+        if category in ["enum", "all"]:
+            enums = self.list_enums()
+            for enum in enums:
+                match_score = 0
+                enum_comment = enum.get("comment") or ""
+                if keyword_lower in enum["full_name"].lower():
+                    match_score += 3
+                if keyword_lower in enum_comment.lower():
+                    match_score += 2
+                for item in enum.get("items", []):
+                    if keyword_lower in item.get("name", "").lower():
+                        match_score += 1
+                        break
+
+                if match_score > 0:
+                    results.append({
+                        "category": "enum",
+                        "name": enum["full_name"],
+                        "comment": enum_comment,
+                        "match_score": match_score
+                    })
+
+        if category in ["bean", "all"]:
+            beans = self.list_beans()
+            for bean in beans:
+                match_score = 0
+                bean_comment = bean.get("comment") or ""
+                bean_parent = bean.get("parent") or ""
+                if keyword_lower in bean["full_name"].lower():
+                    match_score += 3
+                if keyword_lower in bean_comment.lower():
+                    match_score += 2
+                for field in bean.get("fields", []):
+                    if keyword_lower in field.get("name", "").lower():
+                        match_score += 1
+
+                if match_score > 0:
+                    results.append({
+                        "category": "bean",
+                        "name": bean["full_name"],
+                        "comment": bean_comment,
+                        "match_score": match_score
+                    })
+
+        # 按匹配度排序
+        results.sort(key=lambda x: x["match_score"], reverse=True)
+
+        return {
+            "keyword": keyword,
+            "category": category,
+            "count": len(results),
+            "results": results[:20]  # 最多返回20个
+        }
+
+    def get_type_guide(self, topic: str = "all") -> Dict[str, Any]:
+        """获取类型使用指南
+
+        Args:
+            topic: 指南主题 - basic(基本类型), container(容器类型), nullable(可空类型),
+                   enum(枚举), bean(Bean), all(全部)
+
+        Returns:
+            类型使用指南
+        """
+        guides = {
+            "basic": {
+                "title": "基本类型指南",
+                "description": "Luban 支持的基本数据类型",
+                "types": [
+                    {"type": "bool", "usage": "true/false", "note": "布尔值"},
+                    {"type": "byte", "usage": "-128 ~ 127", "note": "小整数"},
+                    {"type": "short", "usage": "-32768 ~ 32767", "note": "短整数"},
+                    {"type": "int", "usage": "常用数字", "note": "32位整数，最常用"},
+                    {"type": "long", "usage": "大整数", "note": "64位整数"},
+                    {"type": "float", "usage": "3.14", "note": "单精度浮点数"},
+                    {"type": "double", "usage": "高精度小数", "note": "双精度浮点数"},
+                    {"type": "string", "usage": "文本内容", "note": "字符串"},
+                    {"type": "text", "usage": "长文本", "note": "多行文本"},
+                    {"type": "datetime", "usage": "2024-01-01", "note": "日期时间"}
+                ]
+            },
+            "container": {
+                "title": "容器类型指南",
+                "description": "用于存储多个元素的数据结构",
+                "types": [
+                    {"type": "array<T>", "usage": "array<int>", "note": "定长数组，大小固定"},
+                    {"type": "list<T>", "usage": "list<string>", "note": "变长列表，最常用"},
+                    {"type": "set<T>", "usage": "set<int>", "note": "元素不重复"},
+                    {"type": "map<K,V>", "usage": "map<int,string>", "note": "键值对映射"}
+                ],
+                "examples": [
+                    {"scenario": "道具ID列表", "type": "list<int>", "data_example": "1001,1002,1003"},
+                    {"scenario": "技能等级伤害", "type": "map<int,int>", "data_example": "1:100,2:200,3:300"},
+                    {"scenario": "标签集合", "type": "set<string>", "data_example": "tag1,tag2,tag3"}
+                ]
+            },
+            "nullable": {
+                "title": "可空类型指南",
+                "description": "在类型后加 ? 表示该字段可为空",
+                "syntax": "Type? 或 基本类型?",
+                "examples": [
+                    {"type": "int?", "meaning": "整数或空", "use_case": "可选数值"},
+                    {"type": "string?", "meaning": "字符串或空", "use_case": "可选描述"},
+                    {"type": "list<int>?", "meaning": "列表或空", "use_case": "可选列表"}
+                ],
+                "note": "可空类型在数据表中可以留空，Luban 会将其解析为 null"
+            },
+            "enum": {
+                "title": "枚举类型指南",
+                "description": "枚举用于定义有限个命名常量",
+                "definition": "在 __enums__.xlsx 中定义",
+                "usage": [
+                    {"step": 1, "action": "使用 enum list 查看所有枚举"},
+                    {"step": 2, "action": "使用 enum get <name> 查看枚举详情"},
+                    {"step": 3, "action": "在字段类型中使用枚举全名"}
+                ],
+                "example": {
+                    "enum_name": "test.EQuality",
+                    "values": "WHITE=0(白), GREEN=1(绿), BLUE=2(蓝)",
+                    "field_usage": "quality:test.EQuality"
+                }
+            },
+            "bean": {
+                "title": "Bean 类型指南",
+                "description": "Bean 是自定义数据结构，可以包含多个字段",
+                "definition": "在 __beans__.xlsx 中定义",
+                "usage": [
+                    {"step": 1, "action": "使用 bean list 查看所有 Bean"},
+                    {"step": 2, "action": "使用 bean get <name> 查看 Bean 详情"},
+                    {"step": 3, "action": "在字段类型中使用 Bean 全名"}
+                ],
+                "example": {
+                    "bean_name": "test.RewardItem",
+                    "fields": "id:int, count:int",
+                    "field_usage": "rewards:list<test.RewardItem>"
+                }
+            }
+        }
+
+        if topic == "all":
+            return {
+                "title": "Luban 类型系统完整指南",
+                "topics": list(guides.keys()),
+                "guides": guides
+            }
+        elif topic in guides:
+            return guides[topic]
+        else:
+            return {"error": f"未知主题: {topic}", "available_topics": list(guides.keys())}
+
     def get_table_data(self, table_name: str) -> Optional[Dict[str, Any]]:
         """获取表的数据（从 Excel 文件）"""
         # 查找匹配的表定义
@@ -3911,8 +4454,38 @@ def main():
     multirow_parser.add_argument("--sheet", default="", help="Sheet名称")
     
     # 类型信息命令
-    type_parser = subparsers.add_parser("type", help="类型信息查询")
-    type_parser.add_argument("name", help="类型名")
+    type_parser = subparsers.add_parser("type", help="类型系统操作")
+    type_subparsers = type_parser.add_subparsers(dest="type_command")
+
+    # type info - 查询单个类型详情
+    type_info = type_subparsers.add_parser("info", help="查询类型详情")
+    type_info.add_argument("name", help="类型名，如 'int', 'list<int>', 'test.EQuality'")
+
+    # type list - 列出所有可用类型
+    type_list = type_subparsers.add_parser("list", help="列出所有可用类型")
+    type_list.add_argument("--category", choices=["basic", "container", "enum", "bean", "all"],
+                          default="all", help="类型类别筛选")
+
+    # type validate - 验证类型是否有效
+    type_validate = type_subparsers.add_parser("validate", help="验证类型字符串是否有效")
+    type_validate.add_argument("name", help="类型名字符串")
+
+    # type suggest - 根据字段名建议类型
+    type_suggest = type_subparsers.add_parser("suggest", help="根据字段名建议类型")
+    type_suggest.add_argument("field_name", help="字段名，如 'item_id', 'name', 'quality'")
+    type_suggest.add_argument("--context", choices=["item", "skill", "monster", "quest", "general"],
+                             default="general", help="上下文类型")
+
+    # type search - 搜索类型
+    type_search = type_subparsers.add_parser("search", help="搜索类型")
+    type_search.add_argument("keyword", help="搜索关键词")
+    type_search.add_argument("--category", choices=["enum", "bean", "all"],
+                            default="all", help="搜索类别")
+
+    # type guide - 显示类型使用指南
+    type_guide = type_subparsers.add_parser("guide", help="显示类型使用指南")
+    type_guide.add_argument("--topic", choices=["basic", "container", "nullable", "enum", "bean", "all"],
+                           default="all", help="指南主题")
     
     # 缓存命令
     cache_parser = subparsers.add_parser("cache", help="缓存操作")
@@ -4392,8 +4965,29 @@ def main():
     
     # 类型信息操作
     elif args.command == "type":
-        result = helper.get_type_info(args.name)
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        if not args.type_command or args.type_command == "info":
+            # 默认查询类型详情
+            type_name = args.name if hasattr(args, 'name') else None
+            if type_name:
+                result = helper.get_type_info(type_name)
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+            else:
+                print("错误: 请指定类型名或使用子命令")
+        elif args.type_command == "list":
+            result = helper.list_all_types(args.category)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        elif args.type_command == "validate":
+            result = helper.validate_type(args.name)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        elif args.type_command == "suggest":
+            result = helper.suggest_type_for_field(args.field_name, args.context)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        elif args.type_command == "search":
+            result = helper.search_types(args.keyword, args.category)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        elif args.type_command == "guide":
+            result = helper.get_type_guide(args.topic)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
     
     # 缓存操作
     elif args.command == "cache":
