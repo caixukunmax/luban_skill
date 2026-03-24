@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Luban 配置编辑器辅助脚本
+luban_skill - Luban 配置编辑器辅助脚本
 用于 AI 操作 Luban 配置表、枚举、Bean 等
 """
 
@@ -4117,7 +4117,7 @@ class LubanConfigHelper:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Luban 配置编辑器辅助脚本")
+    parser = argparse.ArgumentParser(description="luban_skill - Luban 配置编辑器辅助脚本")
     parser.add_argument("--data-dir", default="DataTables/Datas", help="数据目录路径")
     
     subparsers = parser.add_subparsers(dest="command", help="命令")

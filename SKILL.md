@@ -1,5 +1,5 @@
 ---
-name: luban-config-editor
+name: luban_skill
 description: 操作Luban游戏配置表，支持枚举、Bean、数据表的增删改查。【强制使用场景】当用户提到以下任意关键词时必须使用此技能：配置表、数据表、道具表、技能表、奖励表、活动表、Excel表、xlsx、枚举、Bean、字段、数据行、表结构、导表、Luban、游戏配置、修改配置、改表、新增道具、添加技能、策划配置、游戏数据、配置数据。即使用户没有明确说"Luban"，只要是编辑游戏配置数据，也要使用此技能。
 license: MIT
 compatibility: Requires Python 3.8+ and openpyxl package
@@ -8,7 +8,7 @@ metadata:
   version: "3.8.0"
 ---
 
-# Luban 配置编辑器 Skill
+# luban_skill
 
 帮助 AI 高效操作 Luban 游戏配置表，支持枚举、Bean、数据表的增删改查。
 

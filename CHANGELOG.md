@@ -67,9 +67,9 @@
 - 支持数据行操作
 - 支持缓存管理
 
-[Unreleased]: https://github.com/luban-tools/luban-config-editor-skill/compare/v3.8.0...HEAD
-[3.8.0]: https://github.com/luban-tools/luban-config-editor-skill/compare/v3.7.0...v3.8.0
-[3.7.0]: https://github.com/luban-tools/luban-config-editor-skill/compare/v3.6.0...v3.7.0
-[3.6.0]: https://github.com/luban-tools/luban-config-editor-skill/compare/v3.5.0...v3.6.0
-[3.5.0]: https://github.com/luban-tools/luban-config-editor-skill/compare/v3.0.0...v3.5.0
-[3.0.0]: https://github.com/luban-tools/luban-config-editor-skill/releases/tag/v3.0.0
+[Unreleased]: https://github.com/luban-tools/luban_skill/compare/v3.8.0...HEAD
+[3.8.0]: https://github.com/luban-tools/luban_skill/compare/v3.7.0...v3.8.0
+[3.7.0]: https://github.com/luban-tools/luban_skill/compare/v3.6.0...v3.7.0
+[3.6.0]: https://github.com/luban-tools/luban_skill/compare/v3.5.0...v3.6.0
+[3.5.0]: https://github.com/luban-tools/luban_skill/compare/v3.0.0...v3.5.0
+[3.0.0]: https://github.com/luban-tools/luban_skill/releases/tag/v3.0.0

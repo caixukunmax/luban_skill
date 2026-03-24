@@ -1,6 +1,6 @@
 # 贡献指南
 
-感谢你对 Luban Config Editor Skill 的兴趣！我们欢迎各种形式的贡献。
+感谢你对 **luban_skill** 的兴趣！我们欢迎各种形式的贡献。
 
 ## 如何贡献
 
@@ -69,8 +69,8 @@ feat: add type validation for container types
 
 ```bash
 # 克隆仓库
-git clone https://github.com/luban-tools/luban-config-editor-skill.git
-cd luban-config-editor-skill
+git clone https://github.com/luban-tools/luban_skill.git
+cd luban_skill
 
 # 安装依赖
 pip install openpyxl
@@ -83,7 +83,7 @@ python scripts/luban_helper.py --help
 
 如有问题，可以通过以下方式联系：
 
-- GitHub Issues: [创建 Issue](https://github.com/luban-tools/luban-config-editor-skill/issues)
+- GitHub Issues: [创建 Issue](https://github.com/luban-tools/luban_skill/issues)
 - 邮件: [你的邮箱]
 
 再次感谢你的贡献！

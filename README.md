@@ -1,4 +1,4 @@
-# Luban Config Editor Skill
+# luban_skill
 
 一个强大的 Claude Code Skill，用于高效操作 Luban 游戏配置表。
 
@@ -25,7 +25,7 @@
 将本技能目录复制到你的 `.claude/skills/` 目录下：
 
 ```bash
-cp -r luban-config-editor ~/.claude/skills/
+cp -r luban_skill ~/.claude/skills/
 ```
 
 ## 快速开始
